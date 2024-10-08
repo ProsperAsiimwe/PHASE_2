@@ -12,13 +12,15 @@ from invest.networks.quality_evaluation import QualityNetwork
 from invest.networks.invest_recommendation import InvestmentRecommendationNetwork
 from invest.cpt_learning_algorithms import learn_cpt_mdl, learn_cpt_bic, learn_cpt_mle
 
-VERSION = 1.2
+VERSION = 1.3
 
 def walk_forward_validation(df, start_year, end_year, learning_method, args):
     results = {
         "JGIND": {"CR": [], "AAR": [], "TR": [], "SR": []},
         "JCSEV": {"CR": [], "AAR": [], "TR": [], "SR": []}
     }
+    
+    learn_func = get_learning_function(learning_method)
     
     for train_end in range(start_year, end_year):
         train_df = df[df['Date'] < f"{train_end}-01-01"]
@@ -32,26 +34,17 @@ def walk_forward_validation(df, start_year, end_year, learning_method, args):
         if learning_method != "original":
             learning_data = prepare_data_for_learning(train_df)
             
-            # Check if learning_data is empty or all NaN
             if learning_data.empty or learning_data.isnull().all().all():
                 print(f"Warning: No valid data for learning in year {train_end}. Using original network structures.")
             else:
-                learner = gum.BNLearner(learning_data)
-                
-                # Use EM algorithm to handle missing values
-                learner.useEM(1e-4)  # Using a default epsilon value of 1e-4
-                
-                if learning_method == "mdl":
-                    learner.useScoreLog2Likelihood()
-                elif learning_method == "bic":
-                    learner.useScoreBIC()
-                # For MLE, we don't need to set any specific scoring method
-                
-                # Learn CPTs for each network
                 try:
-                    value_cpt = learner.learnParameters(value_net.model.dag())
-                    quality_cpt = learner.learnParameters(quality_net.model.dag())
-                    invest_cpt = learner.learnParameters(invest_net.model.dag())
+                    learner = gum.BNLearner(learning_data)
+                    learner.useEM(1e-4)  # Using EM algorithm to handle missing values
+                    
+                    # Learn CPTs for each network
+                    value_cpt = learn_func(learning_data, value_net.model)
+                    quality_cpt = learn_func(learning_data, quality_net.model)
+                    invest_cpt = learn_func(learning_data, invest_net.model)
                     
                     value_net.update_cpts(value_cpt)
                     quality_net.update_cpts(quality_cpt)
@@ -62,11 +55,18 @@ def walk_forward_validation(df, start_year, end_year, learning_method, args):
         
         # Run investment portfolio for both sectors
         for sector in ["JGIND", "JCSEV"]:
-            portfolio = investment_portfolio(test_df, args, sector, value_net, quality_net, invest_net, False)
-            results[sector]["CR"].append(portfolio["ip"]["compoundReturn"])
-            results[sector]["AAR"].append(portfolio["ip"]["averageAnnualReturn"])
-            results[sector]["TR"].append(portfolio["ip"]["treynor"])
-            results[sector]["SR"].append(portfolio["ip"]["sharpe"])
+            try:
+                portfolio = investment_portfolio(test_df, args, sector, value_net, quality_net, invest_net, True)
+                results[sector]["CR"].append(portfolio["ip"]["compoundReturn"])
+                results[sector]["AAR"].append(portfolio["ip"]["averageAnnualReturn"])
+                results[sector]["TR"].append(portfolio["ip"]["treynor"])
+                results[sector]["SR"].append(portfolio["ip"]["sharpe"])
+            except Exception as e:
+                print(f"Error in investment portfolio calculation for {sector} in year {train_end}: {str(e)}")
+                results[sector]["CR"].append(0)
+                results[sector]["AAR"].append(0)
+                results[sector]["TR"].append(0)
+                results[sector]["SR"].append(0)
     
     return results
 
@@ -78,7 +78,7 @@ def get_learning_function(method):
     elif method == "mle":
         return learn_cpt_mle
     else:
-        raise ValueError(f"Unknown CPT learning method: {method}")
+        return None
 
 def run_experiments(df, args):
     methods = ["original", "mdl", "bic", "mle"]
@@ -132,10 +132,13 @@ def print_results_table(summary):
 def main():
     start = time.time()
     df = load_data()
-    
     results = run_experiments(df, args)
-    summary = summarize_results(results)
-    print_results_table(summary)
+    
+    try:
+        summary = summarize_results(results)
+        print_results_table(summary)
+    except Exception as e:
+        print(f"Error in summarizing results: {str(e)}")
     
     end = time.time()
     hours, rem = divmod(end - start, 3600)

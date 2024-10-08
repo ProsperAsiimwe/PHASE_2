@@ -132,12 +132,14 @@ class QualityNetwork:
                 'low': 'Low'
             }
         }
-        return label_map.get(var, {}).get(label.lower(), label)
+        return label_map.get(var, {}).get(str(label).lower(), label)
 
     def normalize_evidence(self, evidence):
         """Normalize the evidence labels to match the model's labels."""
         normalized = {}
         for var, val in evidence.items():
+            if pd.isna(val):
+                continue  # Skip NaN values
             if isinstance(val, str):
                 normalized[var] = self.normalize_label(var, val)
             elif val is not None:
@@ -148,7 +150,7 @@ class QualityNetwork:
         ie = gum.ShaferShenoyLIMIDInference(self.model)
 
         normalized_evidence = self.normalize_evidence(evidence)
-        # print("Normalized quality evidence:", normalized_evidence)  # Debugging output
+        print("Normalized quality evidence:", normalized_evidence)  # Debugging output
 
         for var, val in normalized_evidence.items():
             if val is None:
@@ -160,17 +162,20 @@ class QualityNetwork:
                         raise ValueError(f"Invalid label '{val}' for variable '{var}'")
                     ie.addEvidence(var, variable.index(val))
                 except gum.OutOfBounds:
-                    # print(f"Error: Invalid label '{val}' for variable '{var}'")
-                    # print(f"Valid labels for '{var}': {[self.model.variable(var).label(i) for i in range(self.model.variable(var).domainSize())]}")
+                    print(f"Error: Invalid label '{val}' for variable '{var}'")
+                    print(f"Valid labels for '{var}': {[self.model.variable(var).label(i) for i in range(self.model.variable(var).domainSize())]}")
                     raise
             elif isinstance(val, list):
                 ie.addEvidence(var, val)
             else:
                 raise ValueError(f"Unsupported evidence type for {var}: {type(val)}")
 
-        ie.makeInference()
-        decision_index = np.argmax(ie.posteriorUtility('Quality').toarray())
-        decision = self.model.variable('Quality').label(int(decision_index))
+        try:
+            ie.makeInference()
+            decision_index = np.argmax(ie.posteriorUtility('Quality').toarray())
+            decision = self.model.variable('Quality').label(int(decision_index))
+        except Exception as e:
+            print(f"Error during inference: {str(e)}")
+            decision = "Medium"  # Default decision in case of error
 
         return decision
-

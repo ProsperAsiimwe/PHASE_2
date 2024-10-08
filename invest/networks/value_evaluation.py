@@ -105,7 +105,6 @@ class ValueNetwork:
                 self.model.cpt(node).fillWith(learned_cpt[node])
 
     def normalize_label(self, label):
-        """Normalize label to match the model's labels."""
         label_map = {
             'cheap': 'Cheap',
             'fairvalue': 'FairValue',
@@ -117,9 +116,10 @@ class ValueNetwork:
         return label_map.get(label.lower(), label)
 
     def normalize_evidence(self, evidence):
-        """Normalize the evidence labels to match the model's labels."""
         normalized = {}
         for var, val in evidence.items():
+            if pd.isna(val):
+                continue  # Skip NaN values
             if isinstance(val, str):
                 normalized[var] = self.normalize_label(val)
             elif val is not None:
@@ -131,7 +131,6 @@ class ValueNetwork:
         ie.addNoForgettingAssumption(['Expensive_E', 'ValueRelativeToPrice'])
 
         normalized_evidence = self.normalize_evidence(evidence)
-        # print("Normalized evidence:", normalized_evidence)  # Debugging output
 
         for var, val in normalized_evidence.items():
             if val is None:
@@ -140,8 +139,8 @@ class ValueNetwork:
                 try:
                     ie.addEvidence(var, self.model.variable(var).index(val))
                 except gum.OutOfBounds:
-                    # print(f"Error: Invalid label '{val}' for variable '{var}'")
-                    # print(f"Valid labels for '{var}': {[self.model.variable(var).label(i) for i in range(self.model.variable(var).domainSize())]}")
+                    print(f"Error: Invalid label '{val}' for variable '{var}'")
+                    print(f"Valid labels for '{var}': {[self.model.variable(var).label(i) for i in range(self.model.variable(var).domainSize())]}")
                     raise
             elif isinstance(val, list):
                 ie.addEvidence(var, val)
