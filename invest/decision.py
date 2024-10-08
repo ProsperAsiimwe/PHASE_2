@@ -4,11 +4,13 @@ import pyAgrum as gum
 import invest.evaluation.validation as validation
 from invest.preprocessing.simulation import simulate
 from invest.store import Store
+import numpy as np
 
 companies_jcsev = json.load(open('data/jcsev.json'))['names']
 companies_jgind = json.load(open('data/jgind.json'))['names']
 companies = companies_jcsev + companies_jgind
 companies_dict = {"JCSEV": companies_jcsev, "JGIND": companies_jgind}
+
 
 def prepare_data_for_learning(df):
     """
@@ -21,37 +23,81 @@ def prepare_data_for_learning(df):
         
     Returns:
     --------
-    pyAgrum.database
-        A pyAgrum database suitable for learning CPTs.
+    pandas.DataFrame
+        A DataFrame suitable for learning CPTs.
     """
-    # Select relevant columns for learning
-    relevant_columns = [
-        'PERelative_ShareMarket', 'PERelative_ShareSector', 'ForwardPE_CurrentVsHistory',
-        'ROEvsCOE', 'RelDE', 'CAGRvsInflation', 'SystematicRisk',
-        'Price', 'ShareBeta'
-    ]
+    print("Available columns in the DataFrame:")
+    print(df.columns.tolist())
     
-    learning_data = df[relevant_columns].copy()
+    # Define mappings for column names
+    column_mappings = {
+        'current_PE_relative_share_market_to_historical': 'PERelative_ShareMarket',
+        'current_PE_relative_share_sector_to_historical': 'PERelative_ShareSector',
+        'forward_PE_current_to_historical': 'ForwardPE_CurrentVsHistory',
+        'roe_vs_coe': 'ROEvsCOE',
+        'relative_debt_to_equity': 'RelDE',
+        'growth_cagr_vs_inflation': 'CAGRvsInflation',
+        'systematic_risk': 'SystematicRisk',
+        'Price': 'Price',
+        'ShareBeta': 'ShareBeta',
+        'Name': 'Name',
+        'Date': 'Date'
+    }
     
-    # Discretize continuous variables
-    learning_data['PriceChange'] = df.groupby('Name')['Price'].pct_change()
-    learning_data['PriceChange'] = pd.cut(learning_data['PriceChange'], bins=3, labels=['Negative', 'Stagnant', 'Positive'])
+    # Select relevant columns that exist in the DataFrame
+    existing_columns = [col for col in column_mappings.keys() if col in df.columns]
+    learning_data = df[existing_columns].copy()
+    
+    # Rename columns to match the expected names
+    learning_data.rename(columns={old: new for old, new in column_mappings.items() if old in existing_columns}, inplace=True)
+    
+    # Handle missing columns
+    for expected_col in column_mappings.values():
+        if expected_col not in learning_data.columns:
+            print(f"Warning: Column '{expected_col}' is missing. Adding with NaN values.")
+            learning_data[expected_col] = np.nan
+    
+    # Ensure 'Date' is in datetime format
+    learning_data['Date'] = pd.to_datetime(learning_data['Date'])
+    
+    # Sort the DataFrame by 'Name' and 'Date'
+    learning_data = learning_data.sort_values(['Name', 'Date'])
+    
+    # Calculate price change
+    if 'Price' in learning_data.columns and 'Name' in learning_data.columns:
+        learning_data['PriceChange'] = learning_data.groupby('Name')['Price'].pct_change()
+        learning_data['PriceChange'] = pd.cut(learning_data['PriceChange'], bins=3, labels=['Negative', 'Stagnant', 'Positive'])
+    else:
+        print("Warning: 'Price' or 'Name' column not found. Setting PriceChange to NaN.")
+        learning_data['PriceChange'] = np.nan
     
     # Convert categorical variables to discrete states
     for col in ['PERelative_ShareMarket', 'PERelative_ShareSector', 'ForwardPE_CurrentVsHistory']:
-        learning_data[col] = pd.cut(learning_data[col], bins=3, labels=['Cheap', 'FairValue', 'Expensive'])
+        if col in learning_data.columns and not learning_data[col].isna().all():
+            learning_data[col] = pd.cut(learning_data[col], bins=3, labels=['Cheap', 'FairValue', 'Expensive'])
     
     for col in ['ROEvsCOE', 'RelDE', 'CAGRvsInflation']:
-        learning_data[col] = pd.cut(learning_data[col], bins=3, labels=['Below', 'EqualTo', 'Above'])
+        if col in learning_data.columns and not learning_data[col].isna().all():
+            learning_data[col] = pd.cut(learning_data[col], bins=3, labels=['Below', 'EqualTo', 'Above'])
     
-    learning_data['SystematicRisk'] = pd.cut(learning_data['ShareBeta'], bins=3, labels=['lower', 'EqualTo', 'greater'])
+    if 'ShareBeta' in learning_data.columns and not learning_data['ShareBeta'].isna().all():
+        learning_data['SystematicRisk'] = pd.cut(learning_data['ShareBeta'], bins=3, labels=['lower', 'EqualTo', 'greater'])
     
-    # Drop rows with NaN values
-    learning_data = learning_data.dropna()
+    # Select only the columns we need for learning
+    final_columns = ['PERelative_ShareMarket', 'PERelative_ShareSector', 'ForwardPE_CurrentVsHistory',
+                     'ROEvsCOE', 'RelDE', 'CAGRvsInflation', 'SystematicRisk', 'PriceChange']
+    learning_data = learning_data[final_columns]
     
-    # Convert to pyAgrum database
-    gum_db = gum.DatabaseGenerator(learning_data)
-    return gum_db
+    # print("Columns in the final learning data:")
+    # print(learning_data.columns.tolist())
+    
+    print("Sample of the final learning data:")
+    print(learning_data.head())
+    
+    # Convert all columns to string type, replacing NaN with 'NaN'
+    learning_data = learning_data.astype(str).replace('nan', 'NaN')
+    
+    return learning_data
 
 def investment_portfolio(df_, params, index_code, value_net, quality_net, invest_net, verbose=False):
     """
@@ -89,7 +135,11 @@ def investment_portfolio(df_, params, index_code, value_net, quality_net, invest
     betas = {}
     investable_shares = {}
 
+    print(f"Processing sector: {index_code}")
+    print(f"Year range: {params.start} to {params.end}")
+
     for year in range(params.start, params.end):
+        print(f"\nProcessing year {year}")
         store = Store(df, companies, companies_jcsev, companies_jgind,
                       params.margin_of_safety, params.beta, year, False)
         investable_shares[str(year)] = []
@@ -97,22 +147,33 @@ def investment_portfolio(df_, params, index_code, value_net, quality_net, invest
         prices_current[str(year)] = []
         betas[str(year)] = []
         df_future_performance = pd.DataFrame()
+        
+        print(f"Number of companies being evaluated: {len(companies_dict[index_code])}")
+        
         for company in companies_dict[index_code]:
             if store.get_acceptable_stock(company):
+                # print(f"Company {company} is acceptable")
                 if not df_future_performance.empty:
                     future_performance = df_future_performance[company][0]
                 else:
                     future_performance = None
                 if investment_decision(store, company, value_net, quality_net, invest_net, future_performance, 
                                        params.extension, params.ablation, params.network) == "Yes":
-                    mask = (df_['Date'] >= str(year) + '-01-01') & (
-                            df_['Date'] <= str(year) + '-12-31') & (df_['Name'] == company)
+                    # print(f"Company {company} selected for investment")
+                    mask = (df_['Date'] >= f"{year}-01-01") & (
+                            df_['Date'] <= f"{year}-12-31") & (df_['Name'] == company)
                     df_year = df_[mask]
 
                     investable_shares[str(year)].append(company)
                     prices_initial[str(year)].append(df_year.iloc[0]['Price'])
                     prices_current[str(year)].append(df_year.iloc[params.holding_period]['Price'])
                     betas[str(year)].append(df_year.iloc[params.holding_period]["ShareBeta"])
+            #     else:
+            #         print(f"Company {company} not selected for investment")
+            # else:
+            #     print(f"Company {company} is not acceptable")
+
+        print(f"Number of investable shares for year {year}: {len(investable_shares[str(year)])}")
 
     if verbose:
         print("\n{} {} - {}".format(index_code, params.start, params.end))
@@ -150,6 +211,7 @@ def investment_portfolio(df_, params, index_code, value_net, quality_net, invest
     }
     return portfolio
 
+
 def investment_decision(store, company, value_net, quality_net, invest_net, future_performance=None, 
                         extension=False, ablation=False, network='v'):
     # Prepare evidence for Value Network
@@ -162,11 +224,11 @@ def investment_decision(store, company, value_net, quality_net, invest_net, futu
     if future_performance is not None:
         value_evidence['FutureSharePerformance'] = future_performance
     
-    # print("Value evidence before normalization:", value_evidence)  # Debugging output
+    # print(f"Value evidence for {company}: {value_evidence}")
     
     # Make Value decision
     value_decision = value_net.make_decision(value_evidence)
-    # print("Value decision:", value_decision)  # Debugging output
+    # print(f"Value decision for {company}: {value_decision}")
 
     # Prepare evidence for Quality Network
     quality_evidence = {
@@ -177,19 +239,11 @@ def investment_decision(store, company, value_net, quality_net, invest_net, futu
     if extension:
         quality_evidence['SystematicRisk'] = store.get_systematic_risk(company)
 
-    # print("Quality evidence before normalization:", quality_evidence)  # Debugging output
+    # print(f"Quality evidence for {company}: {quality_evidence}")
 
     # Make Quality decision
-    try:
-        quality_decision = quality_net.make_decision(quality_evidence)
-        # print("Quality decision:", quality_decision)  # Debugging output
-    except Exception as e:
-        print(f"Error in quality decision: {str(e)}")
-        print("Quality network structure:")
-        for node in quality_net.model.nodes():
-            var = quality_net.model.variable(node)
-            print(f"  {var.name()}: {[var.label(i) for i in range(var.domainSize())]}")
-        raise
+    quality_decision = quality_net.make_decision(quality_evidence)
+    # print(f"Quality decision for {company}: {quality_decision}")
 
     if ablation and network == 'v':
         if value_decision in ["Cheap", "FairValue"]:
@@ -203,5 +257,5 @@ def investment_decision(store, company, value_net, quality_net, invest_net, futu
             return "No"
     
     final_decision = invest_net.make_decision(value_decision, quality_decision)
-    # print("Final decision:", final_decision)  # Debugging output
+    # print(f"Final investment decision for {company}: {final_decision}")
     return final_decision

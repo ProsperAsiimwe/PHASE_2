@@ -4,7 +4,6 @@ import pandas as pd
 import invest.calculator.ratios as ratios
 import invest.calculator.threshold as threshold
 
-
 class Store:
     """
     Performs ratio and threshold calculations needed by the Bayesian Networks as input
@@ -64,20 +63,22 @@ class Store:
             df_current_year = None
             current_price = None
             for i in range(start_year, end_year):
-                mask_eps = (self.df_main['Date'] >= str(i) + '-01-01') & (
-                        self.df_main['Date'] <= str(i) + '-12-31') & (self.df_main['Name'] == company)
+                mask_eps = (self.df_main['Date'] >= f"{i}-01-01") & (
+                        self.df_main['Date'] <= f"{i}-12-31") & (self.df_main['Name'] == company)
                 company_df_by_year = self.df_main.loc[mask_eps]
 
-                eps = company_df_by_year.iloc[-1]['EPS']
-                eps_year_list.append(eps)
+                if not company_df_by_year.empty:
+                    eps = company_df_by_year.iloc[-1]['EPS']
+                    eps_year_list.append(eps)
 
-                mask_current_price = (self.df_main['Date'] >= str(end_year - 1) + '-' + '01-01') & (
-                        self.df_main['Date'] < str(end_year) + '-' + '01-01') & (self.df_main['Name'] == company)
+                mask_current_price = (self.df_main['Date'] >= f"{end_year - 1}-01-01") & (
+                        self.df_main['Date'] < f"{end_year}-01-01") & (self.df_main['Name'] == company)
                 df_current_year = self.df_main.loc[mask_current_price]
-                current_price = df_current_year.iloc[-1]['Price']
+                if not df_current_year.empty:
+                    current_price = df_current_year.iloc[-1]['Price']
 
-                mask_pe_sector_market = (self.df_main['Date'] >= str(end_year - 3) + '-' + '01-01') & (
-                        self.df_main['Date'] < str(end_year) + '-' + '01-01') & (self.df_main['Name'] == company)
+                mask_pe_sector_market = (self.df_main['Date'] >= f"{end_year - 3}-01-01") & (
+                        self.df_main['Date'] < f"{end_year}-01-01") & (self.df_main['Name'] == company)
                 pe_sector_3_years = self.df_main.loc[mask_pe_sector_market]
                 pe_market_3_years = self.df_main.loc[mask_pe_sector_market]
                 for v in pe_sector_3_years['PESector'].to_numpy():
@@ -88,22 +89,33 @@ class Store:
                     if not np.isnan(v):
                         pe_market_list.append(float(v))
 
+            if not eps_year_list or not pe_sector_list or not pe_market_list or df_current_year is None or df_current_year.empty:
+                continue
+
             # historic_earnings_growth_rate
             growth_years_n = end_year - start_year
             historic_earnings_growth_rate = ratios.historic_earnings_growth_rate(eps_year_list, growth_years_n)
 
             # historic_earnings_cagr
-            historic_earnings_cagr = ratios.historic_earnings_cagr(eps_year_list[-1], eps_year_list[-4], 3)
+            if len(eps_year_list) >= 4:
+                historic_earnings_cagr = ratios.historic_earnings_cagr(eps_year_list[-1], eps_year_list[-4], 3)
+            else:
+                historic_earnings_cagr = 0
 
             # historic_price_to_earnings_share
-            mask_pe = (self.df_main['Date'] >= str(end_year - 1) + '-01-01') & (
-                    self.df_main['Date'] < str(end_year) + '-01-01') & (self.df_main['Name'] == company)
+            mask_pe = (self.df_main['Date'] >= f"{end_year - 1}-01-01") & (
+                    self.df_main['Date'] < f"{end_year}-01-01") & (self.df_main['Name'] == company)
             df_company_3_years = self.df_main.loc[mask_pe]
             price_list_3_years = df_company_3_years['Price'].to_numpy()
             eps_list_3_years = df_company_3_years['EPS'].to_numpy()
             historic_price_to_earnings_share = ratios.historic_price_to_earnings_share(price_list_3_years,
                                                                                        eps_list_3_years)
             forward_earnings_current_year = ratios.forward_earnings(eps_year_list[-1], historic_earnings_growth_rate)
+
+            # Skip this company if essential calculations return 0 due to insufficient data
+            if (historic_earnings_growth_rate == 0 or historic_earnings_cagr == 0 or
+                historic_price_to_earnings_share == 0 or forward_earnings_current_year == 0):
+                continue
 
             historic_earnings_growth_rate_past = ratios.historic_earnings_growth_rate(eps_year_list, 3)
 
@@ -193,55 +205,76 @@ class Store:
                                "negative_shareholders_equity": negative_shareholders_equity,
                                "beta_classify": beta_classify,
                                "acceptable_stock": acceptable_stock}
-                self.df_shares = pd.concat([self.df_shares, pd.DataFrame([company_row])], ignore_index=True) 
+                self.df_shares = pd.concat([self.df_shares, pd.DataFrame([company_row])], ignore_index=True)
 
     def get_acceptable_stock(self, company):
         """
         Returns the discrete state of whether the stock is acceptable or not for the given company
         """
-        return self.df_shares.loc[self.df_shares['company_name'] == company, "acceptable_stock"].iloc[0]
+        company_data = self.df_shares[self.df_shares['company_name'] == company]
+        if company_data.empty:
+            return False
+        return company_data["acceptable_stock"].iloc[0]
 
     def get_pe_relative_market(self, company):
         """
         Returns the PE relative to market discrete state for the given company
         """
-        return self.df_shares.loc[self.df_shares['company_name'] == company,
-                                  "current_PE_relative_share_market_to_historical"].iloc[0]
+        company_data = self.df_shares[self.df_shares['company_name'] == company]
+        if company_data.empty:
+            return None
+        return company_data["current_PE_relative_share_market_to_historical"].iloc[0]
 
     def get_pe_relative_sector(self, company):
         """
         Returns the PE relative to sector discrete state for the given company
         """
-
-        return self.df_shares.loc[self.df_shares['company_name'] == company,
-                                  "current_PE_relative_share_sector_to_historical"].iloc[0]
+        company_data = self.df_shares[self.df_shares['company_name'] == company]
+        if company_data.empty:
+            return None
+        return company_data["current_PE_relative_share_sector_to_historical"].iloc[0]
 
     def get_forward_pe(self, company):
         """
         Returns the Forward PE discrete state for the given company
         """
-        return self.df_shares.loc[self.df_shares['company_name'] == company, "forward_PE_current_to_historical"].iloc[0]
+        company_data = self.df_shares[self.df_shares['company_name'] == company]
+        if company_data.empty:
+            return None
+        return company_data["forward_PE_current_to_historical"].iloc[0]
 
     def get_roe_vs_coe(self, company):
         """
         Returns the ROE vs COE discrete state for the given company
         """
-        return self.df_shares.loc[self.df_shares['company_name'] == company, "roe_vs_coe"].iloc[0]
+        company_data = self.df_shares[self.df_shares['company_name'] == company]
+        if company_data.empty:
+            return None
+        return company_data["roe_vs_coe"].iloc[0]
 
     def get_relative_debt_equity(self, company):
         """
         Returns the Relative Debt to Equity discrete state for the given company
         """
-        return self.df_shares.loc[self.df_shares['company_name'] == company, "relative_debt_to_equity"].iloc[0]
+        company_data = self.df_shares[self.df_shares['company_name'] == company]
+        if company_data.empty:
+            return None
+        return company_data["relative_debt_to_equity"].iloc[0]
 
     def get_cagr_vs_inflation(self, company):
         """
         Returns the Compound Annual Growth Rate vs Inflation discrete state for the given company
         """
-        return self.df_shares.loc[self.df_shares['company_name'] == company, "growth_cagr_vs_inflation"].iloc[0]
+        company_data = self.df_shares[self.df_shares['company_name'] == company]
+        if company_data.empty:
+            return None
+        return company_data["growth_cagr_vs_inflation"].iloc[0]
 
     def get_systematic_risk(self, company):
         """
         Returns the Systematic Risk discrete state for the given company
         """
-        return self.df_shares.loc[self.df_shares['company_name'] == company, "systematic_risk"].iloc[0]
+        company_data = self.df_shares[self.df_shares['company_name'] == company]
+        if company_data.empty:
+            return None
+        return company_data["systematic_risk"].iloc[0]
