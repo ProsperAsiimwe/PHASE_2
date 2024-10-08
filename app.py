@@ -23,9 +23,13 @@ def walk_forward_validation(df, start_year, end_year, learning_method, args):
     learn_func = get_learning_function(learning_method)
     
     for train_end in range(start_year, end_year):
+        print(f"\nProcessing train_end year: {train_end}")
         train_df = df[df['Date'] < f"{train_end}-01-01"]
         test_df = df[(df['Date'] >= f"{train_end}-01-01") & (df['Date'] < f"{train_end+1}-01-01")]
         
+        print(f"Train data shape: {train_df.shape}")
+        print(f"Test data shape: {test_df.shape}")
+
         # Initialize networks
         value_net = ValueNetwork()
         quality_net = QualityNetwork(extension=args.extension)
@@ -38,35 +42,62 @@ def walk_forward_validation(df, start_year, end_year, learning_method, args):
                 print(f"Warning: No valid data for learning in year {train_end}. Using original network structures.")
             else:
                 try:
-                    learner = gum.BNLearner(learning_data)
-                    learner.useEM(1e-4)  # Using EM algorithm to handle missing values
+                    print("Starting CPT learning process...")
+                    print(f"Learning data shape: {learning_data.shape}")
+                    print(f"Learning data columns: {learning_data.columns}")
+                    print(f"Learning data sample:\n{learning_data.head()}")
                     
-                    # Learn CPTs for each network
+                    print("Learning Value Network CPTs...")
                     value_cpt = learn_func(learning_data, value_net.model)
+                    print("Learning Quality Network CPTs...")
                     quality_cpt = learn_func(learning_data, quality_net.model)
+                    print("Learning Investment Recommendation Network CPTs...")
                     invest_cpt = learn_func(learning_data, invest_net.model)
                     
                     value_net.update_cpts(value_cpt)
                     quality_net.update_cpts(quality_cpt)
                     invest_net.update_cpts(invest_cpt)
+                    print("CPT learning completed successfully.")
                 except Exception as e:
                     print(f"Error learning parameters: {e}")
+                    import traceback
+                    traceback.print_exc()
                     print("Using original network structures without learning")
         
         # Run investment portfolio for both sectors
         for sector in ["JGIND", "JCSEV"]:
+            print(f"\nProcessing sector: {sector}")
             try:
                 portfolio = investment_portfolio(test_df, args, sector, value_net, quality_net, invest_net, True)
+                
+                print(f"Portfolio results for {sector}:")
+                print(f"Number of investable shares: {len(portfolio['ip']['shares'].get(str(train_end), []))}")
+                print(f"Compound Return: {portfolio['ip']['compoundReturn']:.2%}")
+                print(f"Average Annual Return: {portfolio['ip']['averageAnnualReturn']:.2%}")
+                print(f"Treynor Ratio: {portfolio['ip']['treynor']:.2f}")
+                print(f"Sharpe Ratio: {portfolio['ip']['sharpe']:.2f}")
+                
                 results[sector]["CR"].append(portfolio["ip"]["compoundReturn"])
                 results[sector]["AAR"].append(portfolio["ip"]["averageAnnualReturn"])
                 results[sector]["TR"].append(portfolio["ip"]["treynor"])
                 results[sector]["SR"].append(portfolio["ip"]["sharpe"])
             except Exception as e:
                 print(f"Error in investment portfolio calculation for {sector} in year {train_end}: {str(e)}")
+                print("Traceback:")
+                import traceback
+                traceback.print_exc()
                 results[sector]["CR"].append(0)
                 results[sector]["AAR"].append(0)
                 results[sector]["TR"].append(0)
                 results[sector]["SR"].append(0)
+        
+        print("\nIntermediate Results:")
+        for sector in ["JGIND", "JCSEV"]:
+            print(f"{sector}:")
+            print(f"CR: {results[sector]['CR']}")
+            print(f"AAR: {results[sector]['AAR']}")
+            print(f"TR: {results[sector]['TR']}")
+            print(f"SR: {results[sector]['SR']}")
     
     return results
 
@@ -81,7 +112,8 @@ def get_learning_function(method):
         return None
 
 def run_experiments(df, args):
-    methods = ["original", "mdl", "bic", "mle"]
+    # methods = ["original", "mdl", "bic", "mle"]
+    methods = ["mdl", "bic", "mle"]
     results = {method: {} for method in methods}
     
     for method in methods:

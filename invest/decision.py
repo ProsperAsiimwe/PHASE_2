@@ -59,6 +59,10 @@ def prepare_data_for_learning(df):
         return pd.DataFrame()
 
 def investment_portfolio(df_, params, index_code, value_net, quality_net, invest_net, verbose=False):
+    print(f"Processing sector: {index_code}")
+    print(f"Date range in data: {df_['Date'].min()} to {df_['Date'].max()}")
+    print(f"Total rows in data: {len(df_)}")
+    
     if params.noise:
         df = simulate(df_)
     else:
@@ -69,11 +73,11 @@ def investment_portfolio(df_, params, index_code, value_net, quality_net, invest
     betas = {}
     investable_shares = {}
 
-    print(f"Processing sector: {index_code}")
-    print(f"Year range: {params.start} to {params.end}")
-
     for year in range(params.start, params.end):
         print(f"\nProcessing year {year}")
+        year_data = df[(df['Date'] >= f"{year}-01-01") & (df['Date'] <= f"{year}-12-31")]
+        print(f"Data for year {year}: {len(year_data)} rows")
+        
         store = Store(df, companies, companies_jcsev, companies_jgind,
                       params.margin_of_safety, params.beta, year, False)
         investable_shares[str(year)] = []
@@ -86,12 +90,14 @@ def investment_portfolio(df_, params, index_code, value_net, quality_net, invest
         
         for company in companies_dict[index_code]:
             if store.get_acceptable_stock(company):
+                print(f"Company {company} is acceptable")
                 if not df_future_performance.empty:
                     future_performance = df_future_performance[company][0]
                 else:
                     future_performance = None
                 if investment_decision(store, company, value_net, quality_net, invest_net, future_performance, 
                                        params.extension, params.ablation, params.network) == "Yes":
+                    print(f"Company {company} selected for investment")
                     mask = (df_['Date'] >= f"{year}-01-01") & (
                             df_['Date'] <= f"{year}-12-31") & (df_['Name'] == company)
                     df_year = df_[mask]
@@ -103,9 +109,12 @@ def investment_portfolio(df_, params, index_code, value_net, quality_net, invest
                         betas[str(year)].append(df_year.iloc[params.holding_period]["ShareBeta"])
                     else:
                         print(f"Warning: No data found for {company} in year {year}")
+                else:
+                    print(f"Company {company} not selected for investment")
+            else:
+                print(f"Company {company} is not acceptable")
 
         print(f"Number of investable shares for year {year}: {len(investable_shares[str(year)])}")
-
 
     if verbose:
         print("\n{} {} - {}".format(index_code, params.start, params.end))
@@ -156,8 +165,11 @@ def investment_decision(store, company, value_net, quality_net, invest_net, futu
     if future_performance is not None:
         value_evidence['FutureSharePerformance'] = future_performance
     
+    print(f"Value evidence for {company}: {value_evidence}")
+    
     # Make Value decision
     value_decision = value_net.make_decision(value_evidence)
+    print(f"Value decision for {company}: {value_decision}")
 
     # Prepare evidence for Quality Network
     quality_evidence = {
@@ -168,8 +180,11 @@ def investment_decision(store, company, value_net, quality_net, invest_net, futu
     if extension:
         quality_evidence['SystematicRisk'] = store.get_systematic_risk(company)
 
+    print(f"Quality evidence for {company}: {quality_evidence}")
+
     # Make Quality decision
     quality_decision = quality_net.make_decision(quality_evidence)
+    print(f"Quality decision for {company}: {quality_decision}")
 
     if ablation and network == 'v':
         if value_decision in ["Cheap", "FairValue"]:
@@ -183,4 +198,10 @@ def investment_decision(store, company, value_net, quality_net, invest_net, futu
             return "No"
     
     final_decision = invest_net.make_decision(value_decision, quality_decision)
+    print(f"Investment decision for {company}:")
+    print(f"Value evidence: {value_evidence}")
+    print(f"Value decision: {value_decision}")
+    print(f"Quality evidence: {quality_evidence}")
+    print(f"Quality decision: {quality_decision}")
+    print(f"Final decision: {final_decision}")
     return final_decision
