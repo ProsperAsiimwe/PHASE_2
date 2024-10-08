@@ -162,11 +162,11 @@ def investment_decision(store, company, value_net, quality_net, invest_net, futu
     if future_performance is not None:
         value_evidence['FutureSharePerformance'] = future_performance
     
-    print("Value evidence before normalization:", value_evidence)  # Debugging output
+    # print("Value evidence before normalization:", value_evidence)  # Debugging output
     
     # Make Value decision
     value_decision = value_net.make_decision(value_evidence)
-    print("Value decision:", value_decision)  # Debugging output
+    # print("Value decision:", value_decision)  # Debugging output
 
     # Prepare evidence for Quality Network
     quality_evidence = {
@@ -177,12 +177,12 @@ def investment_decision(store, company, value_net, quality_net, invest_net, futu
     if extension:
         quality_evidence['SystematicRisk'] = store.get_systematic_risk(company)
 
-    print("Quality evidence before normalization:", quality_evidence)  # Debugging output
+    # print("Quality evidence before normalization:", quality_evidence)  # Debugging output
 
     # Make Quality decision
     try:
         quality_decision = quality_net.make_decision(quality_evidence)
-        print("Quality decision:", quality_decision)  # Debugging output
+        # print("Quality decision:", quality_decision)  # Debugging output
     except Exception as e:
         print(f"Error in quality decision: {str(e)}")
         print("Quality network structure:")
@@ -203,5 +203,5 @@ def investment_decision(store, company, value_net, quality_net, invest_net, futu
             return "No"
     
     final_decision = invest_net.make_decision(value_decision, quality_decision)
-    print("Final decision:", final_decision)  # Debugging output
+    # print("Final decision:", final_decision)  # Debugging output
     return final_decision

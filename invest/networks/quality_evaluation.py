@@ -148,7 +148,7 @@ class QualityNetwork:
         ie = gum.ShaferShenoyLIMIDInference(self.model)
 
         normalized_evidence = self.normalize_evidence(evidence)
-        print("Normalized quality evidence:", normalized_evidence)  # Debugging output
+        # print("Normalized quality evidence:", normalized_evidence)  # Debugging output
 
         for var, val in normalized_evidence.items():
             if val is None:
@@ -160,8 +160,8 @@ class QualityNetwork:
                         raise ValueError(f"Invalid label '{val}' for variable '{var}'")
                     ie.addEvidence(var, variable.index(val))
                 except gum.OutOfBounds:
-                    print(f"Error: Invalid label '{val}' for variable '{var}'")
-                    print(f"Valid labels for '{var}': {[self.model.variable(var).label(i) for i in range(self.model.variable(var).domainSize())]}")
+                    # print(f"Error: Invalid label '{val}' for variable '{var}'")
+                    # print(f"Valid labels for '{var}': {[self.model.variable(var).label(i) for i in range(self.model.variable(var).domainSize())]}")
                     raise
             elif isinstance(val, list):
                 ie.addEvidence(var, val)

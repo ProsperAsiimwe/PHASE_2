@@ -131,7 +131,7 @@ class ValueNetwork:
         ie.addNoForgettingAssumption(['Expensive_E', 'ValueRelativeToPrice'])
 
         normalized_evidence = self.normalize_evidence(evidence)
-        print("Normalized evidence:", normalized_evidence)  # Debugging output
+        # print("Normalized evidence:", normalized_evidence)  # Debugging output
 
         for var, val in normalized_evidence.items():
             if val is None:
@@ -140,8 +140,8 @@ class ValueNetwork:
                 try:
                     ie.addEvidence(var, self.model.variable(var).index(val))
                 except gum.OutOfBounds:
-                    print(f"Error: Invalid label '{val}' for variable '{var}'")
-                    print(f"Valid labels for '{var}': {[self.model.variable(var).label(i) for i in range(self.model.variable(var).domainSize())]}")
+                    # print(f"Error: Invalid label '{val}' for variable '{var}'")
+                    # print(f"Valid labels for '{var}': {[self.model.variable(var).label(i) for i in range(self.model.variable(var).domainSize())]}")
                     raise
             elif isinstance(val, list):
                 ie.addEvidence(var, val)
