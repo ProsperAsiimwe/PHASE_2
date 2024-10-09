@@ -40,13 +40,13 @@ class Store:
                 if company_data.empty:
                     print(f"No data found for company: {company}")
                     continue
-                
+                    
                 year_data = company_data[(company_data['Date'] >= f"{self.years}-01-01") & 
-                                         (company_data['Date'] <= f"{self.years}-12-31")]
+                                        (company_data['Date'] <= f"{self.years}-12-31")]
                 if year_data.empty:
                     print(f"No data found for company {company} in year {self.years}")
                     continue
-                
+                    
                 print(f"Processing company: {company}")
                 print(f"Data for {self.years}: {len(year_data)} rows")
                 
@@ -88,9 +88,7 @@ class Store:
                     print(f"PE Market data: {pe_market_list}")
                     print(f"Current Year Data: {'Available' if df_current_year is not None and not df_current_year.empty else 'Not Available'}")
 
-                    quit()
-
-                    # continue
+                    continue
 
                 # historic_earnings_growth_rate
                 growth_years_n = end_year - start_year

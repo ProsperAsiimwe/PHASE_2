@@ -12,7 +12,7 @@ from invest.networks.quality_evaluation import QualityNetwork
 from invest.networks.invest_recommendation import InvestmentRecommendationNetwork
 from invest.cpt_learning_algorithms import learn_cpt_mdl, learn_cpt_bic, learn_cpt_mle
 
-VERSION = 1.3
+VERSION = 1.4
 
 def walk_forward_validation(df, start_year, end_year, learning_method, args):
     results = {
@@ -48,9 +48,6 @@ def walk_forward_validation(df, start_year, end_year, learning_method, args):
                 
                 for network_name, network in [("Value", value_net), ("Quality", quality_net), ("Investment Recommendation", invest_net)]:
                     print(f"\nLearning {network_name} Network CPTs...")
-                    print(f"Network variables: {network.model.names()}")
-                    print(f"Common variables: {[var for var in network.model.names() if var in learning_data.columns]}")
-                    
                     try:
                         learned_bn = learn_func(learning_data, network.model)
                         if learned_bn:

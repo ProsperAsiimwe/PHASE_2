@@ -32,24 +32,31 @@ def prepare_data_for_learning(df, value_net, quality_net, invest_net):
         for network in [value_net, quality_net, invest_net]:
             for node in network.model.nodes():
                 var = network.model.variable(node)
-                all_variables[var.name()] = var.domainSize()
+                all_variables[var.name()] = {
+                    'domain_size': var.domainSize(),
+                    'labels': [var.label(i) for i in range(var.domainSize())]
+                }
         
-        # Ensure all network variables are present in the learning data with correct domain sizes
-        for var, domain_size in all_variables.items():
-            if var not in learning_data.columns:
-                # If a variable is missing, add it with a default value
-                learning_data[var] = 0
-            
-            # Ensure the data matches the domain size of the variable
-            learning_data[var] = pd.to_numeric(learning_data[var], errors='coerce')
-            learning_data[var] = pd.cut(learning_data[var], bins=domain_size, labels=range(domain_size), include_lowest=True)
+        # Keep only the variables that are present in both the data and the networks
+        common_variables = set(learning_data.columns) & set(all_variables.keys())
+        learning_data = learning_data[list(common_variables)]
         
-        # Keep only the variables present in the networks
-        learning_data = learning_data[list(all_variables.keys())]
+        # Ensure the data matches the domain size of the variables
+        for var in common_variables:
+            info = all_variables[var]
+            learning_data[var] = pd.Categorical(learning_data[var], categories=info['labels'], ordered=True)
         
         if learning_data.empty or learning_data.isnull().all().all():
             print("Warning: No valid data for learning. Check data preprocessing.")
             return pd.DataFrame()
+        
+        print("Final learning data shape:", learning_data.shape)
+        print("Final learning data columns:", learning_data.columns)
+        print("Final learning data sample:")
+        print(learning_data.head())
+        print("\nVariable information:")
+        for var in learning_data.columns:
+            print(f"{var}: {learning_data[var].dtype}, Unique values: {learning_data[var].unique()}")
         
         return learning_data
     
