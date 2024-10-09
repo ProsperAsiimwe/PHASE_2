@@ -9,9 +9,6 @@ from invest.preprocessing.dataloader import load_benchmark_data
 
 def process_metrics(df, prices_initial_dict, prices_current_dict, share_betas_dict, start_year,
                     end_year, index_code):
-    """
-    Processes risk return metrics (Annual Return, Compound Return, Annual Average Return) for selected portfolio
-    """
     annual_returns = []
     total_return = 0
     for year in range(start_year, end_year):
@@ -60,10 +57,16 @@ def process_risk_adjusted_return_metrics(df, share_betas_dict,
     rf = []
     for year in range(start_year, end_year):
         betas += share_betas_dict[str(year)]
-        mask = (df['Date'] >= str(year) + '-01-01') & (df['Date'] <= str(year) + '-12-31')
-        rf.append(df[mask].iloc[-1]['RiskFreeRateOfReturn'] / 100)
-    beta_portfolio = np.mean(betas)
-    risk_free_rate = np.mean(rf)
+        mask = (df['Date'] >= f"{year}-01-01") & (df['Date'] <= f"{year}-12-31")
+        year_data = df[mask]
+        if not year_data.empty:
+            rf.append(year_data.iloc[-1]['RiskFreeRateOfReturn'] / 100)
+        else:
+            print(f"Warning: No data found for year {year}")
+            rf.append(0)  # or some default value
+
+    beta_portfolio = np.mean(betas) if betas else 0
+    risk_free_rate = np.mean(rf) if rf else 0
 
     if beta_portfolio > 0:
         treynor_ratio = return_metrics.treynor_ratio(portfolio_return, risk_free_rate, beta_portfolio)
@@ -78,7 +81,7 @@ def process_risk_adjusted_return_metrics(df, share_betas_dict,
     v = 0
     for e in excess_returns:
         v += (e - delta) ** 2
-    standard_deviation_excess_return = math.sqrt(v)
+    standard_deviation_excess_return = math.sqrt(v) if v > 0 else 0
     sharpe_ratio = return_metrics.sharpe_ratio(portfolio_return, risk_free_rate, standard_deviation_excess_return)
     print('IP.{} | Treynor Ratio {:5.2f} | Sharpe Ratio: {:5.2f}'.format(index_code, treynor_ratio, sharpe_ratio))
 

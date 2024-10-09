@@ -99,13 +99,35 @@ class ValueNetwork:
         if learned_cpt:
             self.update_cpts(learned_cpt)
 
-    def update_cpts(self, learned_cpt):
+    def update_cpts(self, learned_bn):
+        if learned_bn is None:
+            print("No learned BN provided. Using original CPTs.")
+            return
+
         for node in self.model.nodes():
-            if node in learned_cpt:
-                self.model.cpt(node).fillWith(learned_cpt[node])
+            if self.model.isChanceNode(node):
+                var_name = self.model.variable(node).name()
+                if var_name in learned_bn.names():
+                    self.model.cpt(node).fillWith(learned_bn.cpt(learned_bn.idFromName(var_name)))
+                    print(f"Updated CPT for {var_name}")
+                else:
+                    print(f"Learned BN does not contain variable {var_name}. Keeping original CPT.")
+
+    def print_variable_names(self):
+        print(f"{self.__class__.__name__} Variables:")
+        for node in self.model.nodes():
+            var_name = self.model.variable(node).name()
+            if self.model.isChanceNode(node):
+                node_type = "Chance"
+            elif self.model.isDecisionNode(node):
+                node_type = "Decision"
+            elif self.model.isUtilityNode(node):
+                node_type = "Utility"
+            else:
+                node_type = "Unknown"
+            print(f"{var_name} - {node_type}")
 
     def normalize_label(self, label):
-        """Normalize label to match the model's labels."""
         label_map = {
             'cheap': 'Cheap',
             'fairvalue': 'FairValue',
@@ -117,9 +139,10 @@ class ValueNetwork:
         return label_map.get(label.lower(), label)
 
     def normalize_evidence(self, evidence):
-        """Normalize the evidence labels to match the model's labels."""
         normalized = {}
         for var, val in evidence.items():
+            if pd.isna(val):
+                continue  # Skip NaN values
             if isinstance(val, str):
                 normalized[var] = self.normalize_label(val)
             elif val is not None:
@@ -131,7 +154,6 @@ class ValueNetwork:
         ie.addNoForgettingAssumption(['Expensive_E', 'ValueRelativeToPrice'])
 
         normalized_evidence = self.normalize_evidence(evidence)
-        print("Normalized evidence:", normalized_evidence)  # Debugging output
 
         for var, val in normalized_evidence.items():
             if val is None:

@@ -2,8 +2,6 @@ import numpy as np
 
 np.seterr(all="ignore")
 
-
-# Historic Earnings Growth Rate - 1
 def historic_earnings_growth_rate(eps_list, n):
     """
     Returns the Historic Earnings Growth Rate
@@ -19,59 +17,70 @@ def historic_earnings_growth_rate(eps_list, n):
     -------
     float
     """
+    if len(eps_list) < 2:
+        return 0  # Not enough data to calculate growth rate
+    
     growth_rates = []
-    for year in range(0, n - 1):
-        growth_rate = eps_list[year + 1] / eps_list[year]
-        growth_rates.append(growth_rate)
+    for year in range(len(eps_list) - 1):
+        if eps_list[year] != 0:
+            growth_rate = eps_list[year + 1] / eps_list[year] - 1
+            growth_rates.append(growth_rate)
+    
+    if not growth_rates:
+        return 0  # No valid growth rates calculated
+    
     return np.mean(growth_rates)
 
-
-# Historic Earnings Compound Annual Growth Rate
 def historic_earnings_cagr(eps_n, eps_prev_x, x):
     """
     Returns the Historic Earnings Compound Growth Rate
 
     Parameters
     ----------
-    eps_n : numpy.ndarray
+    eps_n : float
         Earnings per share for year N (current year)
     x : int
         Number of years into the past
-    eps_prev_x: numpy.ndarray
+    eps_prev_x: float
         Earnings per share for year N-x
 
     Returns
     -------
     float
     """
-    if np.isnan(((eps_n / eps_prev_x) ** (1 / x))):
-        return 0
-    return ((eps_n / eps_prev_x) ** (1 / x)) - 1
+    if eps_prev_x == 0 or x == 0:
+        return 0  # Avoid division by zero
+    
+    cagr = ((eps_n / eps_prev_x) ** (1 / x)) - 1
+    return 0 if np.isnan(cagr) else cagr
 
-
-# Historic Price to Earnings
 def historic_price_to_earnings_share(price_list, eps_list):
     """
     Returns the Historic Price to Earnings
 
     Parameters
     ----------
-    price_list : list
+    price_list : numpy.ndarray
         Share prices over past years
-    eps_list : list
+    eps_list : numpy.ndarray
         Earnings per share over past years
 
     Returns
     -------
     float
     """
-    return np.mean(price_list) / np.mean(eps_list)
+    if price_list.size == 0 or eps_list.size == 0:
+        return 0  # Not enough data
+    
+    mean_eps = np.mean(eps_list)
+    if mean_eps == 0:
+        return 0  # Avoid division by zero
+    
+    return np.mean(price_list) / mean_eps
 
-
-# Forward Earnings - 4
 def forward_earnings(eps, historic_earnings_growth_rate_):
     """
-    Returns the Historic Price to Earnings
+    Returns the Forward Earnings
 
     Parameters
     ----------
@@ -84,11 +93,8 @@ def forward_earnings(eps, historic_earnings_growth_rate_):
     -------
     float
     """
+    return eps * (1 + historic_earnings_growth_rate_)
 
-    return eps * historic_earnings_growth_rate_
-
-
-# Forward Earnings Compound Annual Growth Rate - 5
 def forward_earnings_cagr(forward_earnings_n, forward_earnings_prev_x, x):
     """
     Returns the Forward Earnings Compound Annual Growth Rate
@@ -106,12 +112,12 @@ def forward_earnings_cagr(forward_earnings_n, forward_earnings_prev_x, x):
     -------
     float
     """
-    if np.isnan(((forward_earnings_n / forward_earnings_prev_x) ** (1 / x))):
-        return 0
-    return ((forward_earnings_n / forward_earnings_prev_x) ** (1 / x)) - 1
+    if forward_earnings_prev_x == 0 or x == 0:
+        return 0  # Avoid division by zero
+    
+    cagr = ((forward_earnings_n / forward_earnings_prev_x) ** (1 / x)) - 1
+    return 0 if np.isnan(cagr) else cagr
 
-
-# Forward Price to Earnings - Rule 6 - Needs Rule 4
 def forward_price_to_earnings(share_price, forward_earnings_):
     """
     Returns the Forward Price to Earnings
@@ -127,10 +133,11 @@ def forward_price_to_earnings(share_price, forward_earnings_):
     -------
     float
     """
+    if forward_earnings_ == 0:
+        return 0  # Avoid division by zero
+    
     return share_price / forward_earnings_
 
-
-# Price to Earnings Relative Sector - 7, 8
 def pe_relative_sector(historic_price_to_earnings_share_, pe_sector_list):
     """
     Returns the Price to Earnings relative to the sector
@@ -146,10 +153,15 @@ def pe_relative_sector(historic_price_to_earnings_share_, pe_sector_list):
     -------
     float
     """
-    return historic_price_to_earnings_share_ / np.mean(pe_sector_list)
+    if not pe_sector_list:
+        return 0  # Not enough data
+    
+    mean_pe_sector = np.mean(pe_sector_list)
+    if mean_pe_sector == 0:
+        return 0  # Avoid division by zero
+    
+    return historic_price_to_earnings_share_ / mean_pe_sector
 
-
-# Price to Earnings Relative Market - 7, 9
 def pe_relative_market(historic_price_to_earnings_share_, pe_market):
     """
     Returns the Price to Earnings relative to the market
@@ -165,10 +177,15 @@ def pe_relative_market(historic_price_to_earnings_share_, pe_market):
     -------
     float
     """
-    return historic_price_to_earnings_share_ / np.mean(pe_market)
+    if not pe_market:
+        return 0  # Not enough data
+    
+    mean_pe_market = np.mean(pe_market)
+    if mean_pe_market == 0:
+        return 0  # Avoid division by zero
+    
+    return historic_price_to_earnings_share_ / mean_pe_market
 
-
-# Cost of Equity
 def cost_of_equity(market_return_rate, risk_free_return_rate, share_beta):
     """
     Returns the Cost of Equity
@@ -185,12 +202,9 @@ def cost_of_equity(market_return_rate, risk_free_return_rate, share_beta):
     -------
     float
     """
-
     equity_risk_premium = market_return_rate - risk_free_return_rate
     return risk_free_return_rate + share_beta * equity_risk_premium
 
-
-# Relative Debt to Equity
 def relative_debt_to_equity(debt_equity, debt_equity_industry):
     """
     Returns the Relative Debt to Equity
@@ -206,8 +220,10 @@ def relative_debt_to_equity(debt_equity, debt_equity_industry):
     -------
     float
     """
+    if debt_equity_industry == 0:
+        return 0  # Avoid division by zero
+    
     return debt_equity / debt_equity_industry
-
 
 def current_pe_market(current_share_pe, current_market_pe):
     """
@@ -224,9 +240,10 @@ def current_pe_market(current_share_pe, current_market_pe):
     -------
     float
     """
-    current_pe = current_share_pe / current_market_pe
-    return current_pe
-
+    if current_market_pe == 0:
+        return 0  # Avoid division by zero
+    
+    return current_share_pe / current_market_pe
 
 def current_pe_sector(current_share_pe, current_sector_pe):
     """
@@ -243,4 +260,7 @@ def current_pe_sector(current_share_pe, current_sector_pe):
     -------
     float
     """
+    if current_sector_pe == 0:
+        return 0  # Avoid division by zero
+    
     return current_share_pe / current_sector_pe

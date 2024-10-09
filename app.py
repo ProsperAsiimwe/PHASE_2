@@ -3,57 +3,165 @@ import time
 import art
 import os
 import numpy as np
-
-from invest.decision import investment_portfolio
+import pandas as pd
+import pyAgrum as gum
+from invest.decision import investment_portfolio, prepare_data_for_learning
 from invest.preprocessing.dataloader import load_data
 from invest.networks.value_evaluation import ValueNetwork
 from invest.networks.quality_evaluation import QualityNetwork
 from invest.networks.invest_recommendation import InvestmentRecommendationNetwork
 from invest.cpt_learning_algorithms import learn_cpt_mdl, learn_cpt_bic, learn_cpt_mle
-from invest.decision import prepare_data_for_learning
 
-VERSION = 1.1  # Updated version number
+VERSION = 1.4
+
+def walk_forward_validation(df, start_year, end_year, learning_method, args):
+    results = {
+        "JGIND": {"CR": [], "AAR": [], "TR": [], "SR": []},
+        "JCSEV": {"CR": [], "AAR": [], "TR": [], "SR": []}
+    }
+    
+    learn_func = get_learning_function(learning_method)
+    
+    for train_end in range(start_year, end_year):
+        print(f"\nProcessing train_end year: {train_end}")
+        train_df = df[df['Date'] < f"{train_end}-01-01"]
+        test_df = df[(df['Date'] >= f"{train_end}-01-01") & (df['Date'] < f"{train_end+1}-01-01")]
+        
+        print(f"Train data shape: {train_df.shape}")
+        print(f"Test data shape: {test_df.shape}")
+
+        # Initialize networks
+        value_net = ValueNetwork()
+        quality_net = QualityNetwork(extension=args.extension)
+        invest_net = InvestmentRecommendationNetwork()
+        
+        if learning_method != "original":
+            learning_data = prepare_data_for_learning(train_df, value_net, quality_net, invest_net)
+            
+            if learning_data.empty or learning_data.isnull().all().all():
+                print(f"Warning: No valid data for learning in year {train_end}. Using original network structures.")
+            else:
+                print("Starting CPT learning process...")
+                print(f"Learning data shape: {learning_data.shape}")
+                print(f"Learning data columns: {learning_data.columns}")
+                print(f"Learning data sample:\n{learning_data.head()}")
+                
+                for network_name, network in [("Value", value_net), ("Quality", quality_net), ("Investment Recommendation", invest_net)]:
+                    print(f"\nLearning {network_name} Network CPTs...")
+                    try:
+                        learned_bn = learn_func(learning_data, network.model)
+                        if learned_bn:
+                            network.update_cpts(learned_bn)
+                            print(f"{network_name} Network CPTs updated successfully.")
+                        else:
+                            print(f"No CPTs learned for {network_name} Network. Using original CPTs.")
+                    except Exception as e:
+                        print(f"Error learning CPTs for {network_name} Network: {str(e)}")
+                        print(f"Using original CPTs for {network_name} Network.")
+                
+                print("CPT learning process completed.")
+        
+        # Run investment portfolio for both sectors
+        for sector in ["JGIND", "JCSEV"]:
+            print(f"\nProcessing sector: {sector}")
+            try:
+                portfolio = investment_portfolio(test_df, args, sector, value_net, quality_net, invest_net, True)
+                
+                results[sector]["CR"].append(portfolio["ip"]["compoundReturn"])
+                results[sector]["AAR"].append(portfolio["ip"]["averageAnnualReturn"])
+                results[sector]["TR"].append(portfolio["ip"]["treynor"])
+                results[sector]["SR"].append(portfolio["ip"]["sharpe"])
+            except Exception as e:
+                print(f"Error in investment portfolio calculation for {sector} in year {train_end}: {str(e)}")
+                results[sector]["CR"].append(0)
+                results[sector]["AAR"].append(0)
+                results[sector]["TR"].append(0)
+                results[sector]["SR"].append(0)
+        
+        print("\nIntermediate Results:")
+        for sector in ["JGIND", "JCSEV"]:
+            print(f"{sector}:")
+            print(f"CR: {results[sector]['CR']}")
+            print(f"AAR: {results[sector]['AAR']}")
+            print(f"TR: {results[sector]['TR']}")
+            print(f"SR: {results[sector]['SR']}")
+    
+    return results
+
+def get_learning_function(method):
+    if method == "mdl":
+        return learn_cpt_mdl
+    elif method == "bic":
+        return learn_cpt_bic
+    elif method == "mle":
+        return learn_cpt_mle
+    else:
+        return None
+
+def run_experiments(df, args):
+    methods = ["mdl", "bic", "mle"]
+    results = {method: {} for method in methods}
+    
+    for method in methods:
+        print(f"\nRunning experiment for {method.upper()} method")
+        try:
+            results[method] = walk_forward_validation(df, args.start, args.end, method, args)
+            print(f"Experiment for {method.upper()} completed successfully")
+        except Exception as e:
+            print(f"Error occurred during {method.upper()} experiment: {e}")
+            results[method] = None
+        
+        # Print intermediate results
+        if results[method] is not None:
+            for sector in ["JGIND", "JCSEV"]:
+                print(f"\nIntermediate results for {sector} using {method.upper()} method:")
+                print(f"CR: {results[method][sector]['CR']}")
+                print(f"AAR: {results[method][sector]['AAR']}")
+                print(f"TR: {results[method][sector]['TR']}")
+                print(f"SR: {results[method][sector]['SR']}")
+    
+    return results
+
+def summarize_results(results):
+    summary = {}
+    for method, sector_results in results.items():
+        summary[method] = {}
+        for sector in ["JGIND", "JCSEV"]:
+            summary[method][sector] = {
+                "CR": np.mean(sector_results[sector]["CR"]),
+                "AAR": np.mean(sector_results[sector]["AAR"]),
+                "TR": np.mean(sector_results[sector]["TR"]),
+                "SR": np.mean(sector_results[sector]["SR"])
+            }
+    return summary
+
+def print_results_table(summary):
+    for sector in ["JGIND", "JCSEV"]:
+        print(f"\n{sector} Sector Results:")
+        print("Method\t\tCR\t\tAAR\t\tTR\t\tSR")
+        print("-" * 60)
+        for method, results in summary.items():
+            cr = results[sector]["CR"] * 100
+            aar = results[sector]["AAR"] * 100
+            tr = results[sector]["TR"]
+            sr = results[sector]["SR"]
+            print(f"{method.upper()}\t\t{cr:.2f}%\t\t{aar:.2f}%\t\t{tr:.2f}\t\t{sr:.2f}")
 
 def main():
     start = time.time()
-    df_ = load_data()
-
-    # Initialize networks
-    value_net = ValueNetwork()
-    quality_net = QualityNetwork(extension=args.extension)
-    invest_net = InvestmentRecommendationNetwork()
-
-    # Learn CPTs if specified
-    if args.learn_cpt:
-        data = prepare_data_for_learning(df_)
-        if args.cpt_method == 'mdl':
-            learn_func = learn_cpt_mdl
-        elif args.cpt_method == 'bic':
-            learn_func = learn_cpt_bic
-        elif args.cpt_method == 'mle':
-            learn_func = learn_cpt_mle
-        else:
-            raise ValueError(f"Unknown CPT learning method: {args.cpt_method}")
-
-        value_cpt = learn_func(data, value_net.model)
-        quality_cpt = learn_func(data, quality_net.model)
-        invest_cpt = learn_func(data, invest_net.model)
-
-        value_net.update_cpts(value_cpt)
-        quality_net.update_cpts(quality_cpt)
-        invest_net.update_cpts(invest_cpt)
-
-    jgind_portfolio = investment_portfolio(df_, args, "JGIND", value_net, quality_net, invest_net, True)
-    jcsev_portfolio = investment_portfolio(df_, args, "JCSEV", value_net, quality_net, invest_net, True)
+    df = load_data()
+    results = run_experiments(df, args)
+    
+    try:
+        summary = summarize_results(results)
+        print_results_table(summary)
+    except Exception as e:
+        print(f"Error in summarizing results: {str(e)}")
+    
     end = time.time()
-
-    jgind_metrics_ = list(jgind_portfolio["ip"].values())[2::]
-    jcsev_metrics_ = list(jcsev_portfolio["ip"].values())[2::]
-
     hours, rem = divmod(end - start, 3600)
     minutes, seconds = divmod(rem, 60)
-    print("\nExperiment Time: ""{:0>2}:{:0>2}:{:05.2f}".format(int(hours), int(minutes), seconds))
-    return jgind_metrics_, jcsev_metrics_
+    print(f"\nTotal Experiment Time: {int(hours):02d}:{int(minutes):02d}:{seconds:05.2f}")
 
 def str2bool(v):
     if isinstance(v, bool):
@@ -79,30 +187,12 @@ if __name__ == '__main__':
     parser.add_argument("--gnn", type=str2bool, default=False)
     parser.add_argument("--holding_period", type=int, default=-1)
     parser.add_argument("--horizon", type=int, default=10)
-    parser.add_argument("--learn_cpt", type=str2bool, default=False)
-    parser.add_argument("--cpt_method", type=str, choices=['mdl', 'bic', 'mle'], default='mdl')
     args = parser.parse_args()
 
     print(art.text2art("INVEST"))
     print("Insaaf Dhansay & Kialan Pillay")
     print("© University of Cape Town 2021")
-    print("Version {}".format(VERSION))
+    print(f"Version {VERSION}")
     print("=" * 50)
 
-    if args.noise:
-        jgind_metrics = []
-        jcsev_metrics = []
-        for i in range(0, 10):
-            ratios_jgind, ratios_jcsev = main()
-            jgind_metrics.append(ratios_jgind)
-            jcsev_metrics.append(ratios_jcsev)
-        jgind_averaged_metrics = np.mean(jgind_metrics, axis=0)
-        jcsev_averaged_metrics = np.mean(jcsev_metrics, axis=0)
-
-        for i in range(0, 2):
-            jgind_averaged_metrics[i] *= 100
-            jcsev_averaged_metrics[i] *= 100
-        print("JGIND", [round(v, 2) for v in jgind_averaged_metrics])
-        print("JCSEV", [round(v, 2) for v in jcsev_averaged_metrics])
-    else:
-        main()
+    main()

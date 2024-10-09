@@ -4,81 +4,71 @@ import pyAgrum as gum
 import invest.evaluation.validation as validation
 from invest.preprocessing.simulation import simulate
 from invest.store import Store
+import numpy as np
 
 companies_jcsev = json.load(open('data/jcsev.json'))['names']
 companies_jgind = json.load(open('data/jgind.json'))['names']
 companies = companies_jcsev + companies_jgind
 companies_dict = {"JCSEV": companies_jcsev, "JGIND": companies_jgind}
 
-def prepare_data_for_learning(df):
-    """
-    Prepares data for CPT learning by extracting relevant features and converting them to a suitable format.
+
+def prepare_data_for_learning(df, value_net, quality_net, invest_net):
+    df = df.copy()
+    df['Date'] = pd.to_datetime(df['Date'])
     
-    Parameters:
-    -----------
-    df : pandas.DataFrame
-        The input dataframe containing all the financial data.
+    try:
+        max_year = df['Date'].dt.year.max()
+        store = Store(df, companies, companies_jcsev, companies_jgind, 1.4, 0.6, max_year, False)
+        store.process()
         
-    Returns:
-    --------
-    pyAgrum.database
-        A pyAgrum database suitable for learning CPTs.
-    """
-    # Select relevant columns for learning
-    relevant_columns = [
-        'PERelative_ShareMarket', 'PERelative_ShareSector', 'ForwardPE_CurrentVsHistory',
-        'ROEvsCOE', 'RelDE', 'CAGRvsInflation', 'SystematicRisk',
-        'Price', 'ShareBeta'
-    ]
+        learning_data = store.df_shares.copy()
+        
+        if learning_data.empty:
+            print("Warning: Store did not produce any data. Check the Store class implementation.")
+            return pd.DataFrame()
+        
+        # Get all variables from all networks
+        all_variables = {}
+        for network in [value_net, quality_net, invest_net]:
+            for node in network.model.nodes():
+                var = network.model.variable(node)
+                all_variables[var.name()] = {
+                    'domain_size': var.domainSize(),
+                    'labels': [var.label(i) for i in range(var.domainSize())]
+                }
+        
+        # Keep only the variables that are present in both the data and the networks
+        common_variables = set(learning_data.columns) & set(all_variables.keys())
+        learning_data = learning_data[list(common_variables)]
+        
+        # Ensure the data matches the domain size of the variables
+        for var in common_variables:
+            info = all_variables[var]
+            learning_data[var] = pd.Categorical(learning_data[var], categories=info['labels'], ordered=True)
+        
+        if learning_data.empty or learning_data.isnull().all().all():
+            print("Warning: No valid data for learning. Check data preprocessing.")
+            return pd.DataFrame()
+        
+        print("Final learning data shape:", learning_data.shape)
+        print("Final learning data columns:", learning_data.columns)
+        print("Final learning data sample:")
+        print(learning_data.head())
+        print("\nVariable information:")
+        for var in learning_data.columns:
+            print(f"{var}: {learning_data[var].dtype}, Unique values: {learning_data[var].unique()}")
+        
+        return learning_data
     
-    learning_data = df[relevant_columns].copy()
-    
-    # Discretize continuous variables
-    learning_data['PriceChange'] = df.groupby('Name')['Price'].pct_change()
-    learning_data['PriceChange'] = pd.cut(learning_data['PriceChange'], bins=3, labels=['Negative', 'Stagnant', 'Positive'])
-    
-    # Convert categorical variables to discrete states
-    for col in ['PERelative_ShareMarket', 'PERelative_ShareSector', 'ForwardPE_CurrentVsHistory']:
-        learning_data[col] = pd.cut(learning_data[col], bins=3, labels=['Cheap', 'FairValue', 'Expensive'])
-    
-    for col in ['ROEvsCOE', 'RelDE', 'CAGRvsInflation']:
-        learning_data[col] = pd.cut(learning_data[col], bins=3, labels=['Below', 'EqualTo', 'Above'])
-    
-    learning_data['SystematicRisk'] = pd.cut(learning_data['ShareBeta'], bins=3, labels=['lower', 'EqualTo', 'greater'])
-    
-    # Drop rows with NaN values
-    learning_data = learning_data.dropna()
-    
-    # Convert to pyAgrum database
-    gum_db = gum.DatabaseGenerator(learning_data)
-    return gum_db
+    except Exception as e:
+        print(f"Error in prepare_data_for_learning: {str(e)}")
+        return pd.DataFrame()
 
 def investment_portfolio(df_, params, index_code, value_net, quality_net, invest_net, verbose=False):
-    """
-    Decides the shares for inclusion in an investment portfolio using INVEST
-    Bayesian networks. Computes performance metrics for the IP and benchmark index.
-
-    Parameters
-    ----------
-    df_ : pandas.DataFrame
-        Fundamental and price data
-    params : argparse.Namespace
-        Command line arguments
-    index_code: str,
-        Johannesburg Stock Exchange sector index code
-    value_net : ValueNetwork
-        Instance of the Value Network
-    quality_net : QualityNetwork
-        Instance of the Quality Network
-    invest_net : InvestmentRecommendationNetwork
-        Instance of the Investment Recommendation Network
-    verbose: bool, optional
-        Print output to console
-
-    Returns
-    -------
-    portfolio: dict
-    """
+    print(f"Processing sector: {index_code}")
+    print(f"Date range in data: {df_['Date'].min()} to {df_['Date'].max()}")
+    print(f"Total rows in data: {len(df_)}")
+    
     if params.noise:
         df = simulate(df_)
     else:
@@ -90,6 +80,10 @@ def investment_portfolio(df_, params, index_code, value_net, quality_net, invest
     investable_shares = {}
 
     for year in range(params.start, params.end):
+        print(f"\nProcessing year {year}")
+        year_data = df[(df['Date'] >= pd.Timestamp(f"{year}-01-01")) & (df['Date'] <= pd.Timestamp(f"{year}-12-31"))]
+        print(f"Data for year {year}: {len(year_data)} rows")
+        
         store = Store(df, companies, companies_jcsev, companies_jgind,
                       params.margin_of_safety, params.beta, year, False)
         investable_shares[str(year)] = []
@@ -97,22 +91,36 @@ def investment_portfolio(df_, params, index_code, value_net, quality_net, invest
         prices_current[str(year)] = []
         betas[str(year)] = []
         df_future_performance = pd.DataFrame()
+        
+        print(f"Number of companies being evaluated: {len(companies_dict[index_code])}")
+        
         for company in companies_dict[index_code]:
             if store.get_acceptable_stock(company):
+                print(f"Company {company} is acceptable")
                 if not df_future_performance.empty:
                     future_performance = df_future_performance[company][0]
                 else:
                     future_performance = None
                 if investment_decision(store, company, value_net, quality_net, invest_net, future_performance, 
                                        params.extension, params.ablation, params.network) == "Yes":
-                    mask = (df_['Date'] >= str(year) + '-01-01') & (
-                            df_['Date'] <= str(year) + '-12-31') & (df_['Name'] == company)
+                    print(f"Company {company} selected for investment")
+                    mask = (df_['Date'] >= f"{year}-01-01") & (
+                            df_['Date'] <= f"{year}-12-31") & (df_['Name'] == company)
                     df_year = df_[mask]
 
-                    investable_shares[str(year)].append(company)
-                    prices_initial[str(year)].append(df_year.iloc[0]['Price'])
-                    prices_current[str(year)].append(df_year.iloc[params.holding_period]['Price'])
-                    betas[str(year)].append(df_year.iloc[params.holding_period]["ShareBeta"])
+                    if not df_year.empty:
+                        investable_shares[str(year)].append(company)
+                        prices_initial[str(year)].append(df_year.iloc[0]['Price'])
+                        prices_current[str(year)].append(df_year.iloc[params.holding_period]['Price'])
+                        betas[str(year)].append(df_year.iloc[params.holding_period]["ShareBeta"])
+                    else:
+                        print(f"Warning: No data found for {company} in year {year}")
+                else:
+                    print(f"Company {company} not selected for investment")
+            else:
+                print(f"Company {company} is not acceptable")
+
+        print(f"Number of investable shares for year {year}: {len(investable_shares[str(year)])}")
 
     if verbose:
         print("\n{} {} - {}".format(index_code, params.start, params.end))
@@ -150,6 +158,7 @@ def investment_portfolio(df_, params, index_code, value_net, quality_net, invest
     }
     return portfolio
 
+
 def investment_decision(store, company, value_net, quality_net, invest_net, future_performance=None, 
                         extension=False, ablation=False, network='v'):
     # Prepare evidence for Value Network
@@ -162,11 +171,11 @@ def investment_decision(store, company, value_net, quality_net, invest_net, futu
     if future_performance is not None:
         value_evidence['FutureSharePerformance'] = future_performance
     
-    print("Value evidence before normalization:", value_evidence)  # Debugging output
+    print(f"Value evidence for {company}: {value_evidence}")
     
     # Make Value decision
     value_decision = value_net.make_decision(value_evidence)
-    print("Value decision:", value_decision)  # Debugging output
+    print(f"Value decision for {company}: {value_decision}")
 
     # Prepare evidence for Quality Network
     quality_evidence = {
@@ -177,19 +186,11 @@ def investment_decision(store, company, value_net, quality_net, invest_net, futu
     if extension:
         quality_evidence['SystematicRisk'] = store.get_systematic_risk(company)
 
-    print("Quality evidence before normalization:", quality_evidence)  # Debugging output
+    print(f"Quality evidence for {company}: {quality_evidence}")
 
     # Make Quality decision
-    try:
-        quality_decision = quality_net.make_decision(quality_evidence)
-        print("Quality decision:", quality_decision)  # Debugging output
-    except Exception as e:
-        print(f"Error in quality decision: {str(e)}")
-        print("Quality network structure:")
-        for node in quality_net.model.nodes():
-            var = quality_net.model.variable(node)
-            print(f"  {var.name()}: {[var.label(i) for i in range(var.domainSize())]}")
-        raise
+    quality_decision = quality_net.make_decision(quality_evidence)
+    print(f"Quality decision for {company}: {quality_decision}")
 
     if ablation and network == 'v':
         if value_decision in ["Cheap", "FairValue"]:
@@ -203,5 +204,10 @@ def investment_decision(store, company, value_net, quality_net, invest_net, futu
             return "No"
     
     final_decision = invest_net.make_decision(value_decision, quality_decision)
-    print("Final decision:", final_decision)  # Debugging output
+    print(f"Investment decision for {company}:")
+    print(f"Value evidence: {value_evidence}")
+    print(f"Value decision: {value_decision}")
+    print(f"Quality evidence: {quality_evidence}")
+    print(f"Quality decision: {quality_decision}")
+    print(f"Final decision: {final_decision}")
     return final_decision

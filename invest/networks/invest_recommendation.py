@@ -63,20 +63,98 @@ class InvestmentRecommendationNetwork:
         if learned_cpt:
             self.update_cpts(learned_cpt)
 
-    def update_cpts(self, learned_cpt):
+    def update_cpts(self, learned_bn):
+        if learned_bn is None:
+            print("No learned BN provided. Using original CPTs.")
+            return
+
         for node in self.model.nodes():
-            if node in learned_cpt:
-                self.model.cpt(node).fillWith(learned_cpt[node])
+            if self.model.isChanceNode(node):
+                var_name = self.model.variable(node).name()
+                if var_name in learned_bn.names():
+                    self.model.cpt(node).fillWith(learned_bn.cpt(learned_bn.idFromName(var_name)))
+                    print(f"Updated CPT for {var_name}")
+                else:
+                    print(f"Learned BN does not contain variable {var_name}. Keeping original CPT.")
+
+    def print_variable_names(self):
+        print(f"{self.__class__.__name__} Variables:")
+        for node in self.model.nodes():
+            var_name = self.model.variable(node).name()
+            if self.model.isChanceNode(node):
+                node_type = "Chance"
+            elif self.model.isDecisionNode(node):
+                node_type = "Decision"
+            elif self.model.isUtilityNode(node):
+                node_type = "Utility"
+            else:
+                node_type = "Unknown"
+            print(f"{var_name} - {node_type}")
+
+    def normalize_label(self, var, label):
+        """Normalize label to match the model's labels for the specific variable."""
+        label_map = {
+            'Value': {
+                'cheap': 'Cheap',
+                'fairvalue': 'FairValue',
+                'expensive': 'Expensive'
+            },
+            'Quality': {
+                'high': 'High',
+                'medium': 'Medium',
+                'low': 'Low'
+            },
+            'Investable': {
+                'yes': 'Yes',
+                'no': 'No'
+            }
+        }
+        return label_map.get(var, {}).get(str(label).lower(), label)
+
+    def normalize_evidence(self, evidence):
+        """Normalize the evidence labels to match the model's labels."""
+        normalized = {}
+        for var, val in evidence.items():
+            if pd.isna(val):
+                continue  # Skip NaN values
+            if isinstance(val, str):
+                normalized[var] = self.normalize_label(var, val)
+            elif val is not None:
+                normalized[var] = val
+        return normalized
 
     def make_decision(self, value_decision, quality_decision):
         ie = gum.ShaferShenoyLIMIDInference(self.model)
 
-        # Set evidence based on Value and Quality decisions
-        ie.addEvidence('Value', self.model.variable('Value').index(value_decision))
-        ie.addEvidence('Quality', self.model.variable('Quality').index(quality_decision))
+        evidence = {
+            'Value': value_decision,
+            'Quality': quality_decision
+        }
+        normalized_evidence = self.normalize_evidence(evidence)
+        print("Normalized investment evidence:", normalized_evidence)  # Debugging output
 
-        ie.makeInference()
-        decision_index = np.argmax(ie.posteriorUtility('Investable').toarray())
-        decision = self.model.variable('Investable').label(int(decision_index))
+        for var, val in normalized_evidence.items():
+            if val is None:
+                continue  # Skip None values
+            elif isinstance(val, str):
+                try:
+                    variable = self.model.variable(var)
+                    if val not in [variable.label(i) for i in range(variable.domainSize())]:
+                        raise ValueError(f"Invalid label '{val}' for variable '{var}'")
+                    ie.addEvidence(var, variable.index(val))
+                except gum.OutOfBounds:
+                    print(f"Error: Invalid label '{val}' for variable '{var}'")
+                    print(f"Valid labels for '{var}': {[self.model.variable(var).label(i) for i in range(self.model.variable(var).domainSize())]}")
+                    raise
+            else:
+                raise ValueError(f"Unsupported evidence type for {var}: {type(val)}")
+
+        try:
+            ie.makeInference()
+            decision_index = np.argmax(ie.posteriorUtility('Investable').toarray())
+            decision = self.model.variable('Investable').label(int(decision_index))
+        except Exception as e:
+            print(f"Error during inference: {str(e)}")
+            decision = "No"  # Default decision in case of error
 
         return decision
