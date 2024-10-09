@@ -88,7 +88,9 @@ class Store:
                     print(f"PE Market data: {pe_market_list}")
                     print(f"Current Year Data: {'Available' if df_current_year is not None and not df_current_year.empty else 'Not Available'}")
 
-                    continue
+                    quit()
+
+                    # continue
 
                 # historic_earnings_growth_rate
                 growth_years_n = end_year - start_year

@@ -35,19 +35,30 @@ def walk_forward_validation(df, start_year, end_year, learning_method, args):
         quality_net = QualityNetwork(extension=args.extension)
         invest_net = InvestmentRecommendationNetwork()
         
-        if learning_method != "original":
-            learning_data = prepare_data_for_learning(train_df)
-            
-            if learning_data.empty or learning_data.isnull().all().all():
-                print(f"Warning: No valid data for learning in year {train_end}. Using original network structures.")
-            else:
-                try:
-                    print("Starting CPT learning process...")
-                    print(f"Learning data shape: {learning_data.shape}")
-                    print(f"Learning data columns: {learning_data.columns}")
-                    print(f"Learning data sample:\n{learning_data.head()}")
-                    
-                    print("Learning Value Network CPTs...")
+    if learning_method != "original":
+        learning_data = prepare_data_for_learning(train_df)
+        
+        if learning_data.empty or learning_data.isnull().all().all():
+            print(f"Warning: No valid data for learning in year {train_end}. Using original network structures.")
+        else:
+            try:
+                print("Starting CPT learning process...")
+                print(f"Learning data shape: {learning_data.shape}")
+                print(f"Learning data columns: {learning_data.columns}")
+                print(f"Learning data sample:\n{learning_data.head()}")
+                
+                print("\nValue Network Variables:")
+                value_net.print_variable_names()
+                print("\nQuality Network Variables:")
+                quality_net.print_variable_names()
+                print("\nInvestment Recommendation Network Variables:")
+                invest_net.print_variable_names()
+                
+                print("\nLearning Data Columns:")
+                print(learning_data.columns)
+                
+                if not learning_data.empty:
+                    print("\nLearning Value Network CPTs...")
                     value_cpt = learn_func(learning_data, value_net.model)
                     print("Learning Quality Network CPTs...")
                     quality_cpt = learn_func(learning_data, quality_net.model)
@@ -58,11 +69,13 @@ def walk_forward_validation(df, start_year, end_year, learning_method, args):
                     quality_net.update_cpts(quality_cpt)
                     invest_net.update_cpts(invest_cpt)
                     print("CPT learning completed successfully.")
-                except Exception as e:
-                    print(f"Error learning parameters: {e}")
-                    import traceback
-                    traceback.print_exc()
-                    print("Using original network structures without learning")
+                else:
+                    print("No valid data for learning. Using original network structures.")
+            except Exception as e:
+                print(f"Error learning parameters: {e}")
+                import traceback
+                traceback.print_exc()
+                print("Using original network structures without learning")
         
         # Run investment portfolio for both sectors
         for sector in ["JGIND", "JCSEV"]:

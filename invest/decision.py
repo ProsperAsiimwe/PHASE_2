@@ -36,17 +36,27 @@ def prepare_data_for_learning(df):
             'growth_cagr_vs_inflation': 'CAGRvsInflation',
             'systematic_risk': 'SystematicRisk'
         }
-        learning_data.rename(columns=column_mappings, inplace=True)
         
+        # Only rename columns that exist in the dataframe
+        for old_col, new_col in column_mappings.items():
+            if old_col in learning_data.columns:
+                learning_data[new_col] = learning_data[old_col]
+        
+        # Calculate PriceChange (if needed for Quality or Investment networks)
         df['PriceChange'] = df.groupby('Name')['Price'].pct_change()
         df['PriceChange'] = pd.cut(df['PriceChange'], bins=3, labels=['Negative', 'Stagnant', 'Positive'])
         learning_data['PriceChange'] = df['PriceChange']
         
-        final_columns = ['PERelative_ShareMarket', 'PERelative_ShareSector', 'ForwardPE_CurrentVsHistory',
-                         'ROEvsCOE', 'RelDE', 'CAGRvsInflation', 'SystematicRisk', 'PriceChange']
-        learning_data = learning_data[final_columns]
+        # Select only the columns that exist in the dataframe
+        existing_columns = [col for col in learning_data.columns if col in [
+            'FutureSharePerformance', 'PERelative_ShareMarket', 'PERelative_ShareSector', 
+            'ForwardPE_CurrentVsHistory', 'Expensive_E', 'ValueRelativeToPrice', 
+            'ROEvsCOE', 'RelDE', 'CAGRvsInflation', 'SystematicRisk', 'PriceChange'
+        ]]
         
-        learning_data = learning_data.astype(str).replace('nan', 'NaN')
+        learning_data = learning_data[existing_columns]
+        
+        learning_data = learning_data.astype(str).replace('nan', 'Unknown')
         
         if learning_data.empty or learning_data.isnull().all().all():
             print("Warning: No valid data for learning. Check data preprocessing.")

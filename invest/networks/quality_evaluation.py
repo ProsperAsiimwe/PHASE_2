@@ -97,8 +97,14 @@ class QualityNetwork:
 
     def update_cpts(self, learned_cpt):
         for node in self.model.nodes():
-            if node in learned_cpt:
-                self.model.cpt(node).fillWith(learned_cpt[node])
+            var_name = self.model.variable(node).name()
+            if var_name in learned_cpt.names() and not self.model.isUtility(node):
+                self.model.cpt(node).fillWith(learned_cpt.cpt(var_name))
+
+    def print_variable_names(self):
+        print("Quality Network Variables:")
+        for node in self.model.nodes():
+            print(self.model.variable(node).name())
 
     def normalize_label(self, var, label):
         """Normalize label to match the model's labels for the specific variable."""
