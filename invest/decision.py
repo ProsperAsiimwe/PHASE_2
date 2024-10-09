@@ -36,6 +36,12 @@ def prepare_data_for_learning(df):
             'growth_cagr_vs_inflation': 'CAGRvsInflation',
             'systematic_risk': 'SystematicRisk'
         }
+
+        # Add mappings for Investment Recommendation Network
+        df['Performance'] = df['PriceChange'].map({'Positive': 'Positive', 'Stagnant': 'Stagnant', 'Negative': 'Negative'})
+        df['Value'] = df['PERelative_ShareMarket'].map({'cheap': 'Cheap', 'fairValue': 'FairValue', 'expensive': 'Expensive'})
+        df['Quality'] = df['ROEvsCOE'].map({'above': 'High', 'EqualTo': 'Medium', 'below': 'Low'})
+
         
         # Only rename columns that exist in the dataframe
         for old_col, new_col in column_mappings.items():

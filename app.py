@@ -58,19 +58,19 @@ def walk_forward_validation(df, start_year, end_year, learning_method, args):
                 print(learning_data.columns)
                 
                 if not learning_data.empty:
-                    print("\nLearning Value Network CPTs...")
-                    value_cpt = learn_func(learning_data, value_net.model)
-                    print("Learning Quality Network CPTs...")
-                    quality_cpt = learn_func(learning_data, quality_net.model)
-                    print("Learning Investment Recommendation Network CPTs...")
-                    invest_cpt = learn_func(learning_data, invest_net.model)
+                    for network_name, network in [("Value", value_net), ("Quality", quality_net), ("Investment Recommendation", invest_net)]:
+                        print(f"\nLearning {network_name} Network CPTs...")
+                        print(f"Network variables: {network.model.names()}")
+                        print(f"Common variables: {[var for var in network.model.names() if var in learning_data.columns]}")
+                        
+                        cpt = learn_func(learning_data, network.model)
+                        if cpt:
+                            network.update_cpts(cpt)
+                            print(f"{network_name} Network CPTs updated successfully.")
+                        else:
+                            print(f"No CPTs learned for {network_name} Network. Using original CPTs.")
                     
-                    value_net.update_cpts(value_cpt)
-                    quality_net.update_cpts(quality_cpt)
-                    invest_net.update_cpts(invest_cpt)
-                    print("CPT learning completed successfully.")
-                else:
-                    print("No valid data for learning. Using original network structures.")
+                    print("CPT learning process completed.")
             except Exception as e:
                 print(f"Error learning parameters: {e}")
                 import traceback
