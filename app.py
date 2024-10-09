@@ -35,47 +35,34 @@ def walk_forward_validation(df, start_year, end_year, learning_method, args):
         quality_net = QualityNetwork(extension=args.extension)
         invest_net = InvestmentRecommendationNetwork()
         
-    if learning_method != "original":
-        learning_data = prepare_data_for_learning(train_df)
-        
-        if learning_data.empty or learning_data.isnull().all().all():
-            print(f"Warning: No valid data for learning in year {train_end}. Using original network structures.")
-        else:
-            try:
+        if learning_method != "original":
+            learning_data = prepare_data_for_learning(train_df, value_net, quality_net, invest_net)
+            
+            if learning_data.empty or learning_data.isnull().all().all():
+                print(f"Warning: No valid data for learning in year {train_end}. Using original network structures.")
+            else:
                 print("Starting CPT learning process...")
                 print(f"Learning data shape: {learning_data.shape}")
                 print(f"Learning data columns: {learning_data.columns}")
                 print(f"Learning data sample:\n{learning_data.head()}")
                 
-                print("\nValue Network Variables:")
-                value_net.print_variable_names()
-                print("\nQuality Network Variables:")
-                quality_net.print_variable_names()
-                print("\nInvestment Recommendation Network Variables:")
-                invest_net.print_variable_names()
-                
-                print("\nLearning Data Columns:")
-                print(learning_data.columns)
-                
-                if not learning_data.empty:
-                    for network_name, network in [("Value", value_net), ("Quality", quality_net), ("Investment Recommendation", invest_net)]:
-                        print(f"\nLearning {network_name} Network CPTs...")
-                        print(f"Network variables: {network.model.names()}")
-                        print(f"Common variables: {[var for var in network.model.names() if var in learning_data.columns]}")
-                        
-                        cpt = learn_func(learning_data, network.model)
-                        if cpt:
-                            network.update_cpts(cpt)
+                for network_name, network in [("Value", value_net), ("Quality", quality_net), ("Investment Recommendation", invest_net)]:
+                    print(f"\nLearning {network_name} Network CPTs...")
+                    print(f"Network variables: {network.model.names()}")
+                    print(f"Common variables: {[var for var in network.model.names() if var in learning_data.columns]}")
+                    
+                    try:
+                        learned_bn = learn_func(learning_data, network.model)
+                        if learned_bn:
+                            network.update_cpts(learned_bn)
                             print(f"{network_name} Network CPTs updated successfully.")
                         else:
                             print(f"No CPTs learned for {network_name} Network. Using original CPTs.")
-                    
-                    print("CPT learning process completed.")
-            except Exception as e:
-                print(f"Error learning parameters: {e}")
-                import traceback
-                traceback.print_exc()
-                print("Using original network structures without learning")
+                    except Exception as e:
+                        print(f"Error learning CPTs for {network_name} Network: {str(e)}")
+                        print(f"Using original CPTs for {network_name} Network.")
+                
+                print("CPT learning process completed.")
         
         # Run investment portfolio for both sectors
         for sector in ["JGIND", "JCSEV"]:
@@ -83,22 +70,12 @@ def walk_forward_validation(df, start_year, end_year, learning_method, args):
             try:
                 portfolio = investment_portfolio(test_df, args, sector, value_net, quality_net, invest_net, True)
                 
-                print(f"Portfolio results for {sector}:")
-                print(f"Number of investable shares: {len(portfolio['ip']['shares'].get(str(train_end), []))}")
-                print(f"Compound Return: {portfolio['ip']['compoundReturn']:.2%}")
-                print(f"Average Annual Return: {portfolio['ip']['averageAnnualReturn']:.2%}")
-                print(f"Treynor Ratio: {portfolio['ip']['treynor']:.2f}")
-                print(f"Sharpe Ratio: {portfolio['ip']['sharpe']:.2f}")
-                
                 results[sector]["CR"].append(portfolio["ip"]["compoundReturn"])
                 results[sector]["AAR"].append(portfolio["ip"]["averageAnnualReturn"])
                 results[sector]["TR"].append(portfolio["ip"]["treynor"])
                 results[sector]["SR"].append(portfolio["ip"]["sharpe"])
             except Exception as e:
                 print(f"Error in investment portfolio calculation for {sector} in year {train_end}: {str(e)}")
-                print("Traceback:")
-                import traceback
-                traceback.print_exc()
                 results[sector]["CR"].append(0)
                 results[sector]["AAR"].append(0)
                 results[sector]["TR"].append(0)

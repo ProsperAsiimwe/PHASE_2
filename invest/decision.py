@@ -12,7 +12,7 @@ companies = companies_jcsev + companies_jgind
 companies_dict = {"JCSEV": companies_jcsev, "JGIND": companies_jgind}
 
 
-def prepare_data_for_learning(df):
+def prepare_data_for_learning(df, value_net, quality_net, invest_net):
     df = df.copy()
     df['Date'] = pd.to_datetime(df['Date'])
     
@@ -27,42 +27,25 @@ def prepare_data_for_learning(df):
             print("Warning: Store did not produce any data. Check the Store class implementation.")
             return pd.DataFrame()
         
-        column_mappings = {
-            'current_PE_relative_share_market_to_historical': 'PERelative_ShareMarket',
-            'current_PE_relative_share_sector_to_historical': 'PERelative_ShareSector',
-            'forward_PE_current_to_historical': 'ForwardPE_CurrentVsHistory',
-            'roe_vs_coe': 'ROEvsCOE',
-            'relative_debt_to_equity': 'RelDE',
-            'growth_cagr_vs_inflation': 'CAGRvsInflation',
-            'systematic_risk': 'SystematicRisk'
-        }
-
-        # Add mappings for Investment Recommendation Network
-        df['Performance'] = df['PriceChange'].map({'Positive': 'Positive', 'Stagnant': 'Stagnant', 'Negative': 'Negative'})
-        df['Value'] = df['PERelative_ShareMarket'].map({'cheap': 'Cheap', 'fairValue': 'FairValue', 'expensive': 'Expensive'})
-        df['Quality'] = df['ROEvsCOE'].map({'above': 'High', 'EqualTo': 'Medium', 'below': 'Low'})
-
+        # Get all variables from all networks
+        all_variables = {}
+        for network in [value_net, quality_net, invest_net]:
+            for node in network.model.nodes():
+                var = network.model.variable(node)
+                all_variables[var.name()] = var.domainSize()
         
-        # Only rename columns that exist in the dataframe
-        for old_col, new_col in column_mappings.items():
-            if old_col in learning_data.columns:
-                learning_data[new_col] = learning_data[old_col]
+        # Ensure all network variables are present in the learning data with correct domain sizes
+        for var, domain_size in all_variables.items():
+            if var not in learning_data.columns:
+                # If a variable is missing, add it with a default value
+                learning_data[var] = 0
+            
+            # Ensure the data matches the domain size of the variable
+            learning_data[var] = pd.to_numeric(learning_data[var], errors='coerce')
+            learning_data[var] = pd.cut(learning_data[var], bins=domain_size, labels=range(domain_size), include_lowest=True)
         
-        # Calculate PriceChange (if needed for Quality or Investment networks)
-        df['PriceChange'] = df.groupby('Name')['Price'].pct_change()
-        df['PriceChange'] = pd.cut(df['PriceChange'], bins=3, labels=['Negative', 'Stagnant', 'Positive'])
-        learning_data['PriceChange'] = df['PriceChange']
-        
-        # Select only the columns that exist in the dataframe
-        existing_columns = [col for col in learning_data.columns if col in [
-            'FutureSharePerformance', 'PERelative_ShareMarket', 'PERelative_ShareSector', 
-            'ForwardPE_CurrentVsHistory', 'Expensive_E', 'ValueRelativeToPrice', 
-            'ROEvsCOE', 'RelDE', 'CAGRvsInflation', 'SystematicRisk', 'PriceChange'
-        ]]
-        
-        learning_data = learning_data[existing_columns]
-        
-        learning_data = learning_data.astype(str).replace('nan', 'Unknown')
+        # Keep only the variables present in the networks
+        learning_data = learning_data[list(all_variables.keys())]
         
         if learning_data.empty or learning_data.isnull().all().all():
             print("Warning: No valid data for learning. Check data preprocessing.")
