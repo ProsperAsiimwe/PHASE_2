@@ -5,7 +5,7 @@ import pandas as pd
 
 def load_data(filename='data/INVEST_clean.csv'):
     df = pd.read_csv(filename, sep=',')
-    
+    df['Date'] = pd.to_datetime(df['Date'])
     return df
 
 

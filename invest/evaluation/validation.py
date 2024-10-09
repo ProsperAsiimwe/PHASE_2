@@ -9,9 +9,6 @@ from invest.preprocessing.dataloader import load_benchmark_data
 
 def process_metrics(df, prices_initial_dict, prices_current_dict, share_betas_dict, start_year,
                     end_year, index_code):
-    """
-    Processes risk return metrics (Annual Return, Compound Return, Annual Average Return) for selected portfolio
-    """
     annual_returns = []
     total_return = 0
     for year in range(start_year, end_year):

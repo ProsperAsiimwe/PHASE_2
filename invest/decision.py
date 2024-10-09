@@ -81,7 +81,7 @@ def investment_portfolio(df_, params, index_code, value_net, quality_net, invest
 
     for year in range(params.start, params.end):
         print(f"\nProcessing year {year}")
-        year_data = df[(df['Date'] >= f"{year}-01-01") & (df['Date'] <= f"{year}-12-31")]
+        year_data = df[(df['Date'] >= pd.Timestamp(f"{year}-01-01")) & (df['Date'] <= pd.Timestamp(f"{year}-12-31"))]
         print(f"Data for year {year}: {len(year_data)} rows")
         
         store = Store(df, companies, companies_jcsev, companies_jgind,

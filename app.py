@@ -99,7 +99,6 @@ def get_learning_function(method):
         return None
 
 def run_experiments(df, args):
-    # methods = ["original", "mdl", "bic", "mle"]
     methods = ["mdl", "bic", "mle"]
     results = {method: {} for method in methods}
     
